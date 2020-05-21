@@ -67,7 +67,7 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
     int err;
     char *write_ptr = soundio_ring_buffer_write_ptr(ring_buffer);
     int free_bytes = soundio_ring_buffer_free_count(ring_buffer);
-    int free_count = free_bytes / instream->bytes_per_frame;
+    int free_count = free_bytes / instream->bytes_per_sample;
 
     if (frame_count_min > free_count)
         panic("ring buffer overflow");
@@ -87,11 +87,11 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
         if (!areas) {
             // Due to an overflow there is a hole. Fill the ring buffer with
             // silence for the size of the hole.
-            memset(write_ptr, 0, frame_count * instream->bytes_per_frame);
+            memset(write_ptr, 0, frame_count * instream->bytes_per_sample);
             fprintf(stderr, "Dropped %d frames due to internal overflow\n", frame_count);
         } else {
             for (int frame = 0; frame < frame_count; frame += 1) {
-                for (int ch = 0; ch < instream->layout.channel_count; ch += 1) {
+                for (int ch = 0; ch < 1; ch += 1) {
                     memcpy(write_ptr, areas[ch].ptr, instream->bytes_per_sample);
                     areas[ch].ptr += areas[ch].step;
                     write_ptr += instream->bytes_per_sample;
@@ -107,7 +107,7 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
             break;
     }
 
-    int advance_bytes = write_frames * instream->bytes_per_frame;
+    int advance_bytes = write_frames * instream->bytes_per_sample;
     soundio_ring_buffer_advance_write_ptr(ring_buffer, advance_bytes);
 }
 
@@ -119,7 +119,7 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
 
     char *read_ptr = soundio_ring_buffer_read_ptr(ring_buffer);
     int fill_bytes = soundio_ring_buffer_fill_count(ring_buffer);
-    int fill_count = fill_bytes / outstream->bytes_per_frame;
+    int fill_count = fill_bytes / outstream->bytes_per_sample;
 
     if (frame_count_min > fill_count) {
         // Ring buffer does not have enough data, fill with zeroes.
@@ -160,8 +160,8 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
             for (int ch = 0; ch < outstream->layout.channel_count; ch += 1) {
                 memcpy(areas[ch].ptr, read_ptr, outstream->bytes_per_sample);
                 areas[ch].ptr += areas[ch].step;
-                read_ptr += outstream->bytes_per_sample;
             }
+            read_ptr += outstream->bytes_per_sample;
         }
 
         if ((err = soundio_outstream_end_write(outstream)))
@@ -170,7 +170,7 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
         frames_left -= frame_count;
     }
 
-    soundio_ring_buffer_advance_read_ptr(ring_buffer, read_count * outstream->bytes_per_frame);
+    soundio_ring_buffer_advance_read_ptr(ring_buffer, read_count * outstream->bytes_per_sample);
 }
 
 static void underflow_callback(struct SoundIoOutStream *outstream) {
@@ -199,7 +199,7 @@ int main(int argc, char **argv) {
     bool in_raw = false;
     bool out_raw = false;
 
-    double microphone_latency = 0.2; // seconds
+    double microphone_latency = 0.02; // seconds
 
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
@@ -305,12 +305,13 @@ int main(int argc, char **argv) {
     fprintf(stderr, "Output device: %s\n", out_device->name);
 
     soundio_device_sort_channel_layouts(out_device);
-    const struct SoundIoChannelLayout *layout = soundio_best_matching_channel_layout(
-            out_device->layouts, out_device->layout_count,
-            in_device->layouts, in_device->layout_count);
+    struct SoundIoChannelLayout layout;
 
-    if (!layout)
-        panic("channel layouts not compatible");
+    for(int iter = 0; iter < out_device->layout_count; ++iter){
+        layout = out_device->layouts[iter];
+        if (layout.channel_count == 1)
+            break;
+    }
 
     int *sample_rate;
     for (sample_rate = prioritized_sample_rates; *sample_rate; sample_rate += 1) {
@@ -337,9 +338,9 @@ int main(int argc, char **argv) {
     struct SoundIoInStream *instream = soundio_instream_create(in_device);
     if (!instream)
         panic("out of memory");
-    instream->format = *fmt;
+    instream->format = SoundIoFormatFloat32LE;
     instream->sample_rate = *sample_rate;
-    instream->layout = *layout;
+    instream->layout = layout;
     instream->software_latency = microphone_latency;
     instream->read_callback = read_callback;
 
@@ -351,9 +352,9 @@ int main(int argc, char **argv) {
     struct SoundIoOutStream *outstream = soundio_outstream_create(out_device);
     if (!outstream)
         panic("out of memory");
-    outstream->format = *fmt;
+    outstream->format = SoundIoFormatFloat32LE;
     outstream->sample_rate = *sample_rate;
-    outstream->layout = *layout;
+    outstream->layout = layout;
     outstream->software_latency = microphone_latency;
     outstream->write_callback = write_callback;
     outstream->underflow_callback = underflow_callback;
