@@ -199,7 +199,7 @@ int main(int argc, char **argv) {
     bool in_raw = false;
     bool out_raw = false;
 
-    double microphone_latency = 0.02; // seconds
+    double microphone_latency = 0.01; // seconds
 
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
@@ -338,8 +338,8 @@ int main(int argc, char **argv) {
     struct SoundIoInStream *instream = soundio_instream_create(in_device);
     if (!instream)
         panic("out of memory");
-    instream->format = SoundIoFormatFloat32LE;
-    instream->sample_rate = *sample_rate;
+    instream->format = SoundIoFormatS16LE;
+    instream->sample_rate = 8000;
     instream->layout = layout;
     instream->software_latency = microphone_latency;
     instream->read_callback = read_callback;
@@ -352,8 +352,8 @@ int main(int argc, char **argv) {
     struct SoundIoOutStream *outstream = soundio_outstream_create(out_device);
     if (!outstream)
         panic("out of memory");
-    outstream->format = SoundIoFormatFloat32LE;
-    outstream->sample_rate = *sample_rate;
+    outstream->format = SoundIoFormatS16LE;
+    outstream->sample_rate = 8000;
     outstream->layout = layout;
     outstream->software_latency = microphone_latency;
     outstream->write_callback = write_callback;

@@ -36,7 +36,10 @@ DEFINE_GUID(FORMAT_WaveFormatEx,0x05589f81,0xc356,0x11ce,0xbf,0x01,0x00,0xaa,0x0
 DEFINE_GUID(MEDIASUBTYPE_PCM,0x00000001,0x0000,0x0010,0x80,0x00,0x00,0xAA,0x00,0x38,0x9B,0x71);
 DEFINE_GUID(MEDIATYPE_Audio,0x73647561,0x0000,0x0010,0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71);
 static const PROPERTYKEY MFPKEY_WMAAECMA_SYSTEM_MODE = { { 0x6f52c567, 0x360, 0x4bd2, { 0x96, 0x17, 0xcc, 0xbf, 0x14, 0x21, 0xc9, 0x39 } }, PID_FIRST_USABLE + 0};
-
+static const PROPERTYKEY MFPKEY_WMAAECMA_DMO_SOURCE_MODE  = { { 0x6f52c567, 0x360, 0x4bd2, { 0x96, 0x17, 0xcc, 0xbf, 0x14, 0x21, 0xc9, 0x39 } }, PID_FIRST_USABLE + 1};
+static const PROPERTYKEY MFPKEY_WMAAECMA_FEATURE_MODE = { { 0x6f52c567, 0x360, 0x4bd2, { 0x96, 0x17, 0xcc, 0xbf, 0x14, 0x21, 0xc9, 0x39 } }, PID_FIRST_USABLE + 3};
+static const PROPERTYKEY MFPKEY_WMAAECMA_MIC_GAIN_BOUNDER = { { 0x6f52c567, 0x360, 0x4bd2, { 0x96, 0x17, 0xcc, 0xbf, 0x14, 0x21, 0xc9, 0x39 } }, PID_FIRST_USABLE + 19};
+static const PROPERTYKEY MFPKEY_WMAAECMA_FEATR_NS = { { 0x6f52c567, 0x360, 0x4bd2, { 0x96, 0x17, 0xcc, 0xbf, 0x14, 0x21, 0xc9, 0x39 } }, PID_FIRST_USABLE + 6};
 #ifdef __cplusplus
 // In C++ mode, IsEqualGUID() takes its arguments by reference
 #define IS_EQUAL_GUID(a, b) IsEqualGUID(*(a), *(b))
@@ -1931,26 +1934,13 @@ static int instream_do_open(struct SoundIoPrivate *si, struct SoundIoInStreamPri
         return SoundIoErrorOpeningDevice;
     }
 
-    PROPVARIANT pvSysMode;
-    PropVariantInit(&pvSysMode);
-    pvSysMode.vt = VT_I4;
-    pvSysMode.lVal = (LONG)(0x4); //Microphone processeng & AEC
-
-    PROPERTYKEY key = MFPKEY_WMAAECMA_SYSTEM_MODE;
-
-    if (FAILED(hr = IPropertyStore_SetValue(pps, &key, &pvSysMode))){
-        return SoundIoErrorOpeningDevice;
-    }
-
-    PropVariantClear(&pvSysMode);
-
     if (FAILED(hr = MoInitMediaType(&mt, sizeof(WAVEFORMATEX)))){
         return SoundIoErrorOpeningDevice;
     }
 
     mt.majortype = MEDIATYPE_Audio;
     mt.subtype = MEDIASUBTYPE_PCM;
-    mt.lSampleSize = 4;
+    mt.lSampleSize = 2;
     mt.bFixedSizeSamples = TRUE;
     mt.bTemporalCompression = FALSE;
     mt.formattype = FORMAT_WaveFormatEx;
@@ -1958,8 +1948,8 @@ static int instream_do_open(struct SoundIoPrivate *si, struct SoundIoInStreamPri
     WAVEFORMATEX wave_format = {0};
     wave_format.wFormatTag = WAVE_FORMAT_PCM;
     wave_format.cbSize = 0;
-    wave_format.nSamplesPerSec = 16000;
-    wave_format.nAvgBytesPerSec = 32000;
+    wave_format.nSamplesPerSec = 8000;
+    wave_format.nAvgBytesPerSec = 16000;
     wave_format.nChannels = 1;
     wave_format.nBlockAlign = 2;
     wave_format.wBitsPerSample = 16;
@@ -1973,8 +1963,48 @@ static int instream_do_open(struct SoundIoPrivate *si, struct SoundIoInStreamPri
 
     MoFreeMediaType(&mt);
 
-    if (FAILED(hr = IMediaObject_AllocateStreamingResources(isw->dmo))){
-        return SoundIoErrorOpeningDevice;
+    const int modes[2] = {0x4, 0x0};
+
+    for (int i = 0; i < 2; ++i){
+        int mode = modes[i];
+        PROPVARIANT pvSysMode;
+        PropVariantInit(&pvSysMode);
+        pvSysMode.vt = VT_I4;
+        pvSysMode.lVal = (LONG)(mode); //Microphone processeng & AEC
+
+        PROPERTYKEY key = MFPKEY_WMAAECMA_SYSTEM_MODE;
+
+        if (FAILED(hr = IPropertyStore_SetValue(pps, &key, &pvSysMode))){
+            return SoundIoErrorOpeningDevice;
+        }
+
+        key = MFPKEY_WMAAECMA_DMO_SOURCE_MODE;
+        pvSysMode.vt = VT_BOOL;
+        pvSysMode.lVal = (BOOL)(VARIANT_TRUE);
+        if (FAILED(hr = IPropertyStore_SetValue(pps, &key, &pvSysMode))){
+            return SoundIoErrorOpeningDevice;
+        }
+        key = MFPKEY_WMAAECMA_FEATURE_MODE;
+        if (FAILED(hr = IPropertyStore_SetValue(pps, &key, &pvSysMode))){
+            return SoundIoErrorOpeningDevice;
+        }
+        key = MFPKEY_WMAAECMA_MIC_GAIN_BOUNDER;
+        pvSysMode.lVal = (BOOL)(VARIANT_FALSE);
+        if (FAILED(hr = IPropertyStore_SetValue(pps, &key, &pvSysMode))){
+            return SoundIoErrorOpeningDevice;
+        }
+        key = MFPKEY_WMAAECMA_FEATR_NS;
+        pvSysMode.vt = VT_I4;
+        pvSysMode.lVal = (LONG)(0x0);
+        if (FAILED(hr = IPropertyStore_SetValue(pps, &key, &pvSysMode))){
+            return SoundIoErrorOpeningDevice;
+        }
+        PropVariantClear(&pvSysMode);
+
+        if (FAILED(hr = IMediaObject_AllocateStreamingResources(isw->dmo))){
+            if (i == 1)
+                return SoundIoErrorOpeningDevice;
+        }
     }
 
     isw->outputBuffer = MediaBuffer_alloc(32000);
@@ -2019,13 +2049,12 @@ static void instream_shared_run(struct SoundIoInStreamPrivate *is) {
 
     for (;;) {
         soundio_os_mutex_lock(isw->mutex);
-        soundio_os_cond_timed_wait(isw->cond, isw->mutex, instream->software_latency / 2.0);
+        //soundio_os_cond_timed_wait(isw->cond, isw->mutex, instream->software_latency / 2.0);
         if (!SOUNDIO_ATOMIC_FLAG_TEST_AND_SET(isw->thread_exit_flag)) {
             soundio_os_mutex_unlock(isw->mutex);
             return;
         }
         soundio_os_mutex_unlock(isw->mutex);
-
 
         OutputBufferStruct.dwStatus = 0;
         IMediaObject_ProcessOutput(isw->dmo, 0, 1, &OutputBufferStruct, &dwStatus);
@@ -2035,7 +2064,14 @@ static void instream_shared_run(struct SoundIoInStreamPrivate *is) {
         } else {
             hr = MediaBuffer_GetBufferAndLength((IMediaBuffer*)isw->outputBuffer, NULL, &cbProduced);
         }
-        //} while (OutputBufferStruct.dwStatus & DMO_OUTPUT_DATA_BUFFERF_INCOMPLETE);
+
+        if (isw->is_paused){
+            MediaBuffer_SetLength((IMediaBuffer*)isw->outputBuffer, 0);
+            continue;
+        }
+
+        if (cbProduced < 320)
+            continue;
 
         isw->readable_frame_count = cbProduced / 2;
 
@@ -2151,12 +2187,8 @@ static int instream_pause_wasapi(struct SoundIoPrivate *si, struct SoundIoInStre
     struct SoundIoInStreamWasapi *isw = &is->backend_data.wasapi;
     HRESULT hr;
     if (pause && !isw->is_paused) {
-        if (FAILED(hr = IAudioClient_Stop(isw->audio_client)))
-            return SoundIoErrorStreaming;
         isw->is_paused = true;
     } else if (!pause && isw->is_paused) {
-        if (FAILED(hr = IAudioClient_Start(isw->audio_client)))
-            return SoundIoErrorStreaming;
         isw->is_paused = false;
     }
     return 0;
